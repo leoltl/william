@@ -22,10 +22,10 @@ app.post(
       res.json(user);
     },
     {
-      generateIdempotentPayload: (userJson, statusCode) => {
+      generateIdempotentResult: (userJson, statusCode) => {
         return { body: userJson, statusCode };
       },
-      generateErrorPayload: (error) => {
+      generateIdempotentErrorResult: (error) => {
         if (error.message === "User cannot be created") {
           return {
             statusCode: 409,
@@ -56,7 +56,7 @@ app.post(
       res.json(user);
     },
     {
-      generateIdempotentPayload: (userJson) => {
+      generateIdempotentResult: (userJson) => {
         const parsed = JSON.parse(userJson);
         return {
           redirect_uri: `http://localhost:3000/user/${parsed.id}`,

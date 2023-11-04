@@ -2,11 +2,11 @@ const REDIRECT_RESOURCE_URI_CODE = 302;
 
 const defaultConfig = {
   getKeyFromRequest: (req) => req.get("X-Idempotency-Key"),
-  generateIdempotentPayload: (body, statusCode) => ({
+  generateIdempotentResult: (body, statusCode) => ({
     body,
     statusCode,
   }),
-  generateErrorPayload: (error) => ({
+  generateIdempotentErrorResult: (error) => ({
     statusCode: 500,
     body: `Internal Server Error${error?.message ? ` - ${error.message}` : ""}`,
   }),
@@ -73,10 +73,10 @@ module.exports = function configureIdempotentMiddleware({ store }) {
         // send the response to client and storing idempotent request while it is streaming
         res.expressSend(res.locals.intercepted_response);
 
-        const idempotentPayload = config.generateIdempotentPayload?.apply(
-          this,
-          [res.locals.intercepted_response, res.statusCode]
-        );
+        const idempotentPayload = config.generateIdempotentResult?.apply(this, [
+          res.locals.intercepted_response,
+          res.statusCode,
+        ]);
 
         const idempotentRequest = IdempotentRequest.deserialize(
           await store.retrieve(req.idempotency_key)
@@ -90,10 +90,8 @@ module.exports = function configureIdempotentMiddleware({ store }) {
       // error result here for an idempotent endpoint
       async function errorRequestHandler(error, req, res, next) {
         if (arguments.length === 4) {
-          const idempotentErrorPayload = config.generateErrorPayload?.apply(
-            this,
-            [error]
-          );
+          const idempotentErrorPayload =
+            config.generateIdempotentErrorResult?.apply(this, [error]);
           const idempotentRequest = IdempotentRequest.deserialize(
             await store.retrieve(req.idempotency_key)
           );
