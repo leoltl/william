@@ -93,24 +93,19 @@ module.exports = function configureIdempotentMiddleware({
       // we need 4 params so express know to pass error to this handler and store the idempotent
       // error result here for an idempotent endpoint
       async function errorRequestHandler(error, req, res, next) {
-        console.log("I am called");
-        if (arguments.length === 4) {
-          const idempotentErrorPayload =
-            config.generateIdempotentErrorResult?.apply(this, [error]);
-          const idempotentRequest = IdempotentRequest.deserialize(
-            await store.retrieve(req.idempotency_key)
-          );
+        const idempotentErrorPayload =
+          config.generateIdempotentErrorResult?.apply(this, [error]);
+        const idempotentRequest = IdempotentRequest.deserialize(
+          await store.retrieve(req.idempotency_key)
+        );
 
-          idempotentRequest.setErrored(idempotentErrorPayload);
+        idempotentRequest.setErrored(idempotentErrorPayload);
 
-          await store.update(idempotentRequest);
+        await store.update(idempotentRequest);
 
-          res
-            .status(idempotentErrorPayload.statusCode)
-            .expressSend(idempotentErrorPayload.body);
-        } else {
-          res(); // this is next() if arguments.length == 3
-        }
+        res
+          .status(idempotentErrorPayload.statusCode)
+          .expressSend(idempotentErrorPayload.body);
       },
     ];
   };
