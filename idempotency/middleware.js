@@ -77,7 +77,7 @@ module.exports = function configureIdempotentMiddleware({
         // send the response to client and storing idempotent request while it is streaming
         res.expressSend(res.locals.intercepted_response);
 
-        const idempotentPayload = config.generateIdempotentResult?.apply(this, [
+        const idempotentResult = config.generateIdempotentResult?.apply(this, [
           res.locals.intercepted_response,
           res.statusCode,
         ]);
@@ -86,26 +86,26 @@ module.exports = function configureIdempotentMiddleware({
           await store.retrieve(req.idempotency_key)
         );
 
-        idempotentRequest.complete(idempotentPayload);
+        idempotentRequest.complete(idempotentResult);
 
         await store.update(idempotentRequest);
       },
       // we need 4 params so express know to pass error to this handler and store the idempotent
       // error result here for an idempotent endpoint
       async function errorRequestHandler(error, req, res, next) {
-        const idempotentErrorPayload =
+        const idempotentErrorResult =
           config.generateIdempotentErrorResult?.apply(this, [error]);
         const idempotentRequest = IdempotentRequest.deserialize(
           await store.retrieve(req.idempotency_key)
         );
 
-        idempotentRequest.setErrored(idempotentErrorPayload);
+        idempotentRequest.setErrored(idempotentErrorResult);
 
         await store.update(idempotentRequest);
 
         res
-          .status(idempotentErrorPayload.statusCode)
-          .expressSend(idempotentErrorPayload.body);
+          .status(idempotentErrorResult.statusCode)
+          .expressSend(idempotentErrorResult.body);
       },
     ];
   };
@@ -131,9 +131,9 @@ async function runIdempotentRequest(req, res, seenIdempotentRequest) {
 }
 
 class IdempotentRequest {
-  constructor(id, request_uri, status = "started", payload = null) {
+  constructor(id, request_path, status = "started", payload = null) {
     this.id = id;
-    this.request_uri = request_uri;
+    this.request_path = request_path;
     this.status = status;
     this.payload = JSON.parse(payload);
   }
@@ -142,7 +142,7 @@ class IdempotentRequest {
     return {
       id: this.id,
       status: this.status,
-      request_uri: this.request_uri,
+      request_path: this.request_path,
       payload: JSON.stringify(this.payload ?? null),
     };
   }
@@ -187,7 +187,7 @@ class IdempotentRequest {
       return false;
     }
 
-    if (request.path !== this.request_uri) {
+    if (request.path !== this.request_path) {
       return false;
     }
 
@@ -197,7 +197,7 @@ class IdempotentRequest {
   static deserialize(serializedRequest) {
     return new IdempotentRequest(
       serializedRequest.id,
-      serializedRequest.request_uri,
+      serializedRequest.request_path,
       serializedRequest.status,
       serializedRequest.payload
     );
