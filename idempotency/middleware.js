@@ -1,3 +1,5 @@
+const { InMemoryStore } = require("./store");
+
 const REDIRECT_RESOURCE_URI_CODE = 302;
 
 const defaultConfig = {
@@ -12,7 +14,9 @@ const defaultConfig = {
   }),
 };
 
-module.exports = function configureIdempotentMiddleware({ store }) {
+module.exports = function configureIdempotentMiddleware({
+  store = new InMemoryStore(),
+} = {}) {
   return function makeIdempotencyMiddleware(routeHandler, _config = {}) {
     const config = Object.assign({}, defaultConfig, _config);
 
@@ -89,6 +93,7 @@ module.exports = function configureIdempotentMiddleware({ store }) {
       // we need 4 params so express know to pass error to this handler and store the idempotent
       // error result here for an idempotent endpoint
       async function errorRequestHandler(error, req, res, next) {
+        console.log("I am called");
         if (arguments.length === 4) {
           const idempotentErrorPayload =
             config.generateIdempotentErrorResult?.apply(this, [error]);
