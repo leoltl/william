@@ -1,6 +1,6 @@
 const app = require("express")();
 
-const idempotency = require("./idempotency");
+const idempotency = require("./idempotency")();
 const { userRepository } = require("./repositories");
 
 let counter = 0;

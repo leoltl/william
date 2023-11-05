@@ -14,9 +14,7 @@ const defaultConfig = {
   }),
 };
 
-module.exports = function configureIdempotentMiddleware({
-  store = new InMemoryStore(),
-} = {}) {
+module.exports = function initialize({ store = new InMemoryStore() } = {}) {
   return {
     useIdempotency: function makeIdempotencyMiddleware(config = {}) {
       const routeConfig = Object.assign({}, defaultConfig, config);

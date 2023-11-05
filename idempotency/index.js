@@ -1,3 +1,1 @@
-const configureMiddleware = require("./middleware");
-
-module.exports = configureMiddleware();
+module.exports = require("./middleware");
