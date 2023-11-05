@@ -20,7 +20,7 @@ module.exports = function initialize({ store = new InMemoryStore() } = {}) {
       const routeConfig = Object.assign({}, defaultConfig, config);
 
       return async function (req, res, next) {
-        req.idempotency_key = routeConfig.getKeyFromRequest.apply(this, [req]);
+        req.idempotency_key = routeConfig.getKeyFromRequest(req);
 
         if (!req.idempotency_key) {
           // TODO: warn and error
@@ -78,10 +78,10 @@ module.exports = function initialize({ store = new InMemoryStore() } = {}) {
           res.expressSend(res._idempotency.intercepted_response);
 
           const idempotentResult =
-            res._idempotency.config.generateIdempotentResult?.apply(this, [
+            res._idempotency.config.generateIdempotentResult?.(
               res._idempotency.intercepted_response,
-              res.statusCode,
-            ]);
+              res.statusCode
+            );
 
           const idempotentRequest = IdempotentRequest.deserialize(
             await store.retrieve(req.idempotency_key)
@@ -99,9 +99,8 @@ module.exports = function initialize({ store = new InMemoryStore() } = {}) {
           }
 
           const idempotentErrorResult =
-            res._idempotency.config.generateIdempotentErrorResult?.apply(this, [
-              error,
-            ]);
+            res._idempotency.config.generateIdempotentErrorResult?.(error);
+
           const idempotentRequest = IdempotentRequest.deserialize(
             await store.retrieve(req.idempotency_key)
           );
