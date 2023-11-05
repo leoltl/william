@@ -23,8 +23,9 @@ module.exports = function initialize({ store = new InMemoryStore() } = {}) {
         req.idempotency_key = routeConfig.getKeyFromRequest(req);
 
         if (!req.idempotency_key) {
-          // TODO: warn and error
-          return;
+          return res
+            .status(400)
+            .send("Idempotency key is required on an idempotent endpoint");
         }
 
         const storedIdempotentRequest = await store.retrieve(
@@ -49,7 +50,7 @@ module.exports = function initialize({ store = new InMemoryStore() } = {}) {
               return res.status(400).send(error.message);
             }
 
-            throw error;
+            return next(error);
           }
         }
 
