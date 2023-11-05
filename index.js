@@ -24,18 +24,22 @@ app.post(
       };
     },
   }),
-  async (req, res) => {
-    const user = await userRepository.create({ id: counter });
+  async (req, res, next) => {
+    try {
+      const user = await userRepository.create({ id: counter });
 
-    if (counter === 2) {
+      if (counter === 2) {
+        counter++;
+        // simulate an error
+        throw new Error("User cannot be created");
+      }
+
       counter++;
-      // simulate an error
-      throw new Error("User cannot be created");
+
+      res.json(user);
+    } catch (err) {
+      next(err);
     }
-
-    counter++;
-
-    res.json(user);
   }
 );
 

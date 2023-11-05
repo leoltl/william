@@ -58,13 +58,12 @@ module.exports = function configureIdempotentMiddleware({
         await store.create(
           new IdempotentRequest(req.idempotency_key, req.path)
         );
-        res._idempotency = {};
+        res._idempotency = { config: routeConfig };
         res.expressSend = res.send;
 
         // overriding it to extract response body
         res.send = function (body) {
           res._idempotency.intercepted_response = body;
-          res._idempotency.config = routeConfig;
           next();
         };
 
