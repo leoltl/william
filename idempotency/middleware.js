@@ -17,12 +17,12 @@ const defaultConfig = {
 module.exports = function configureIdempotentMiddleware({
   store = new InMemoryStore(),
 } = {}) {
-  return function makeIdempotencyMiddleware(routeHandler, _config = {}) {
-    const config = Object.assign({}, defaultConfig, _config);
+  return {
+    useIdempotency: function makeIdempotencyMiddleware(config = {}) {
+      const routeConfig = Object.assign({}, defaultConfig, config);
 
-    return [
-      async function (req, res, next) {
-        req.idempotency_key = config.getKeyFromRequest.apply(this, [req]);
+      return async function (req, res, next) {
+        req.idempotency_key = routeConfig.getKeyFromRequest.apply(this, [req]);
 
         if (!req.idempotency_key) {
           // TODO: warn and error
@@ -58,56 +58,67 @@ module.exports = function configureIdempotentMiddleware({
         await store.create(
           new IdempotentRequest(req.idempotency_key, req.path)
         );
-
+        res._idempotency = {};
         res.expressSend = res.send;
 
         // overriding it to extract response body
         res.send = function (body) {
-          res.locals.intercepted_response = body;
+          res._idempotency.intercepted_response = body;
+          res._idempotency.config = routeConfig;
           next();
         };
 
-        try {
-          return await routeHandler.apply(this, [req, res, next]);
-        } catch (error) {
-          next(error);
-        }
-      },
-      async function successRequestHandler(req, res) {
-        // send the response to client and storing idempotent request while it is streaming
-        res.expressSend(res.locals.intercepted_response);
+        next();
+      };
+    },
+    idempotency: function () {
+      return [
+        async function successRequestHandler(req, res, next) {
+          if (!res._idempotency) {
+            return next();
+          }
+          // send the response to client and storing idempotent request while it is streaming
+          res.expressSend(res._idempotency.intercepted_response);
 
-        const idempotentResult = config.generateIdempotentResult?.apply(this, [
-          res.locals.intercepted_response,
-          res.statusCode,
-        ]);
+          const idempotentResult =
+            res._idempotency.config.generateIdempotentResult?.apply(this, [
+              res._idempotency.intercepted_response,
+              res.statusCode,
+            ]);
 
-        const idempotentRequest = IdempotentRequest.deserialize(
-          await store.retrieve(req.idempotency_key)
-        );
+          const idempotentRequest = IdempotentRequest.deserialize(
+            await store.retrieve(req.idempotency_key)
+          );
 
-        idempotentRequest.complete(idempotentResult);
+          idempotentRequest.complete(idempotentResult);
 
-        await store.update(idempotentRequest);
-      },
-      // we need 4 params so express know to pass error to this handler and store the idempotent
-      // error result here for an idempotent endpoint
-      async function errorRequestHandler(error, req, res, next) {
-        const idempotentErrorResult =
-          config.generateIdempotentErrorResult?.apply(this, [error]);
-        const idempotentRequest = IdempotentRequest.deserialize(
-          await store.retrieve(req.idempotency_key)
-        );
+          await store.update(idempotentRequest);
+        },
+        // we need 4 params so express know to pass error to this handler and store the idempotent
+        // error result here for an idempotent endpoint
+        async function errorRequestHandler(error, req, res, next) {
+          if (!res._idempotency) {
+            return next(error);
+          }
 
-        idempotentRequest.setErrored(idempotentErrorResult);
+          const idempotentErrorResult =
+            res._idempotency.config.generateIdempotentErrorResult?.apply(this, [
+              error,
+            ]);
+          const idempotentRequest = IdempotentRequest.deserialize(
+            await store.retrieve(req.idempotency_key)
+          );
 
-        await store.update(idempotentRequest);
+          idempotentRequest.setErrored(idempotentErrorResult);
 
-        res
-          .status(idempotentErrorResult.statusCode)
-          .expressSend(idempotentErrorResult.body);
-      },
-    ];
+          await store.update(idempotentRequest);
+
+          res
+            .status(idempotentErrorResult.statusCode)
+            .expressSend(idempotentErrorResult.body);
+        },
+      ];
+    },
   };
 };
 
