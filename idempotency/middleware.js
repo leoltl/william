@@ -36,7 +36,11 @@ module.exports = function initialize({ store = new InMemoryStore() } = {}) {
           storedIdempotentRequest &&
           IdempotentRequest.deserialize(storedIdempotentRequest);
 
-        if (seenIdempotentRequest && seenIdempotentRequest.isInflight()) {
+        if (
+          seenIdempotentRequest &&
+          seenIdempotentRequest.isInflight() &&
+          !seenIdempotentRequest.isMultiPhase()
+        ) {
           return res
             .status(409)
             .send("Another request with same idempotency key is in flight");
@@ -54,9 +58,45 @@ module.exports = function initialize({ store = new InMemoryStore() } = {}) {
           }
         }
 
-        await store.create(
-          new IdempotentRequest(req.idempotency_key, req.path)
-        );
+        let idempotencyRequest;
+
+        if (seenIdempotentRequest && seenIdempotentRequest.isMultiPhase()) {
+          idempotencyRequest = seenIdempotentRequest;
+        } else {
+          idempotencyRequest = new IdempotentRequest(
+            req.idempotency_key,
+            req.path
+          );
+
+          await store.create(idempotencyRequest);
+        }
+
+        req.idempotency ??= {};
+        req.idempotency.executeMultiPhase = async function (phases) {
+          let prevPhaseResult = null;
+
+          let _phases = [...phases];
+
+          if (idempotencyRequest.isMultiPhase()) {
+            _phases = idempotencyRequest.getIncompletePhases(phases);
+            prevPhaseResult = idempotencyRequest.multiPhase.previousPhaseResult;
+          }
+
+          for (const phase of _phases) {
+            const name = phase.name;
+            const work = phase.work;
+            try {
+              prevPhaseResult = await work(req, prevPhaseResult);
+              idempotencyRequest.setRecoveryPoint(name, prevPhaseResult);
+              await store.update(idempotencyRequest);
+            } catch (error) {
+              next(error);
+            }
+          }
+
+          return prevPhaseResult;
+        };
+
         res._idempotency = { config: routeConfig };
         res.expressSend = res.send;
 
@@ -75,18 +115,23 @@ module.exports = function initialize({ store = new InMemoryStore() } = {}) {
           if (!res._idempotency) {
             return next();
           }
-          // send the response to client and storing idempotent request while it is streaming
-          res.expressSend(res._idempotency.intercepted_response);
-
-          const idempotentResult =
-            res._idempotency.config.generateIdempotentResult?.(
-              res._idempotency.intercepted_response,
-              res.statusCode
-            );
 
           const idempotentRequest = IdempotentRequest.deserialize(
             await store.retrieve(req.idempotency_key)
           );
+
+          // send the response to client and storing idempotent request while it is streaming
+          res.expressSend(res.idempotency.intercepted_response);
+
+          const idempotentResult =
+            res.idempotency.config.generateIdempotentResult?.(
+              idempotentRequest.isMultiPhase()
+                ? JSON.stringify(
+                    idempotentRequest.multiPhase.previousPhaseResult
+                  )
+                : res.idempotency.intercepted_response,
+              res.statusCode
+            );
 
           idempotentRequest.complete(idempotentResult);
 
@@ -99,12 +144,19 @@ module.exports = function initialize({ store = new InMemoryStore() } = {}) {
             return next(error);
           }
 
-          const idempotentErrorResult =
-            res._idempotency.config.generateIdempotentErrorResult?.(error);
-
           const idempotentRequest = IdempotentRequest.deserialize(
             await store.retrieve(req.idempotency_key)
           );
+
+          if (
+            idempotentRequest.isMultiPhase() &&
+            !idempotentRequest.isTerminal()
+          ) {
+            return next(error);
+          }
+
+          const idempotentErrorResult =
+            res._idempotency.config.generateIdempotentErrorResult?.(error);
 
           idempotentRequest.setErrored(idempotentErrorResult);
 
@@ -139,11 +191,18 @@ async function runIdempotentRequest(req, res, seenIdempotentRequest) {
 }
 
 class IdempotentRequest {
-  constructor(id, request_path, status = "started", payload = null) {
+  constructor(
+    id,
+    request_path,
+    status = "started",
+    payload = null,
+    multiPhase = null
+  ) {
     this.id = id;
     this.request_path = request_path;
     this.status = status;
     this.payload = JSON.parse(payload);
+    this.multiPhase = JSON.parse(multiPhase);
   }
 
   serialize() {
@@ -152,6 +211,7 @@ class IdempotentRequest {
       status: this.status,
       request_path: this.request_path,
       payload: JSON.stringify(this.payload ?? null),
+      multiPhase: JSON.stringify(this.multiPhase ?? null),
     };
   }
 
@@ -202,12 +262,33 @@ class IdempotentRequest {
     return true;
   }
 
+  isMultiPhase() {
+    return !!this.multiPhase;
+  }
+
+  setRecoveryPoint(recovery_point, previousPhaseResult) {
+    this.multiPhase = {
+      recovery_point,
+      previousPhaseResult,
+    };
+  }
+
+  getIncompletePhases(phases) {
+    const _phases = [...phases];
+    const idx =
+      phases.findIndex(
+        (p) => p.recovery_point === this.multiPhase.recovery_point
+      ) ?? 0;
+    return _phases.slice(idx);
+  }
+
   static deserialize(serializedRequest) {
     return new IdempotentRequest(
       serializedRequest.id,
       serializedRequest.request_path,
       serializedRequest.status,
-      serializedRequest.payload
+      serializedRequest.payload,
+      serializedRequest.multiPhase
     );
   }
 }

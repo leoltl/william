@@ -1,7 +1,7 @@
 const app = require("express")();
 
 const idempotency = require("./idempotency")();
-const { userRepository } = require("./repositories");
+const { userRepository, emailOutboxRepository } = require("./repositories");
 
 let counter = 0;
 
@@ -65,6 +65,31 @@ app.post(
     res.json(user);
   }
 );
+
+app.post("/v3/user", idempotency.useIdempotency(), async (req, res) => {
+  const finalResult = await req.idempotency.executeMultiPhase([
+    {
+      name: "phase_one",
+      work: async (req, prevPhaseResult) => {
+        const user = await userRepository.create({ id: counter });
+        return user;
+      },
+    },
+    {
+      name: "phase_two",
+      work: async (req, prevPhaseResult) => {
+        await emailOutboxRepository.create({
+          type: "user_activation",
+          id: prevPhaseResult.id,
+        });
+
+        return prevPhaseResult;
+      },
+    },
+  ]);
+
+  res.json(finalResult);
+});
 
 app.use("*", idempotency.idempotency());
 
