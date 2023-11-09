@@ -70,6 +70,7 @@ app.post("/v3/user", idempotency.useIdempotency(), async (req, res) => {
   const finalResult = await req.idempotency.executeMultiPhase([
     {
       name: "phase_one",
+      terminateIfErrored: true,
       work: async (req, prevPhaseResult) => {
         const user = await userRepository.create({ id: counter });
         return user;

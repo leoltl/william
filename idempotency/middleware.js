@@ -85,11 +85,20 @@ module.exports = function initialize({ store = new InMemoryStore() } = {}) {
           for (const phase of _phases) {
             const name = phase.name;
             const work = phase.work;
+            const terminateIfErrored = phase.terminateIfErrored;
             try {
               prevPhaseResult = await work(req, prevPhaseResult);
               idempotencyRequest.setRecoveryPoint(name, prevPhaseResult);
               await store.update(idempotencyRequest);
             } catch (error) {
+              if (terminateIfErrored) {
+                idempotencyRequest.setErrored(
+                  routeConfig.generateIdempotentErrorResult?.(error)
+                );
+
+                await store.update(idempotencyRequest);
+              }
+
               next(error);
             }
           }
