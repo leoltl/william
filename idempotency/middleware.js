@@ -130,15 +130,15 @@ module.exports = function initialize({ store = new InMemoryStore() } = {}) {
           );
 
           // send the response to client and storing idempotent request while it is streaming
-          res.expressSend(res.idempotency.intercepted_response);
+          res.expressSend(res._idempotency.intercepted_response);
 
           const idempotentResult =
-            res.idempotency.config.generateIdempotentResult?.(
+            res._idempotency.config.generateIdempotentResult?.(
               idempotentRequest.isMultiPhase()
                 ? JSON.stringify(
                     idempotentRequest.multiPhase.previousPhaseResult
                   )
-                : res.idempotency.intercepted_response,
+                : res._idempotency.intercepted_response,
               res.statusCode
             );
 
